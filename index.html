@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Excel → PPT 表格工具</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    background: #f5f6f8;
+    color: #1f2329;
+    min-height: 100vh;
+  }
+  .app {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+  header {
+    margin-bottom: 32px;
+  }
+  header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    letter-spacing: 0.5px;
+  }
+  header p {
+    margin: 0;
+    color: #6b7280;
+    font-size: 13px;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    background: #ffffff;
+    border: 1px solid #eaecef;
+    border-radius: 10px;
+    padding: 20px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 24px;
+    align-items: center;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+  .toolbar label.field {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #4b5563;
+  }
+  .toolbar select,
+  .toolbar input[type="number"] {
+    border: 1px solid #d9dde3;
+    background: #fff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: #1f2329;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .toolbar select:focus,
+  .toolbar input[type="number"]:focus {
+    border-color: #3b6ef0;
+  }
+  .toolbar .spacer { flex: 1; }
+
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+  button.primary {
+    background: #1f2329;
+    color: #fff;
+  }
+  button.primary:hover { background: #000; }
+  button.ghost {
+    background: #fff;
+    border-color: #d9dde3;
+    color: #374151;
+  }
+  button.ghost:hover { border-color: #1f2329; color: #1f2329; }
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* File drop area */
+  .dropzone {
+    display: block;
+    border: 1.5px dashed #cbd2da;
+    border-radius: 10px;
+    background: #fff;
+    padding: 48px 24px;
+    text-align: center;
+    transition: all 0.2s;
+    cursor: pointer;
+    margin-bottom: 24px;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: #1f2329;
+    background: #fafafa;
+  }
+  .dropzone .icon {
+    font-size: 28px;
+    color: #9ca3af;
+    margin-bottom: 8px;
+  }
+  .dropzone .title {
+    font-size: 15px;
+    color: #374151;
+    margin-bottom: 4px;
+  }
+  .dropzone .hint {
+    font-size: 12px;
+    color: #9ca3af;
+  }
+  .visually-hidden {
+    position: absolute !important;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap; border: 0;
+    opacity: 0; pointer-events: none;
+  }
+
+  /* Preview area */
+  .preview-wrap {
+    background: #fff;
+    border: 1px solid #eaecef;
+    border-radius: 10px;
+    padding: 32px;
+    overflow: auto;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+  .preview-empty {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 13px;
+    padding: 60px 0;
+  }
+
+  /* Rendered table host — captured by html2canvas */
+  #renderHost {
+    display: inline-block;
+    padding: 28px 32px;
+    background: #ffffff;
+  }
+  #renderHost table {
+    border-collapse: collapse;
+    border-spacing: 0;
+    font-feature-settings: "tnum" 1;
+  }
+  #renderHost caption {
+    caption-side: top;
+    text-align: left;
+    padding-bottom: 14px;
+    font-weight: 600;
+    color: #1f2329;
+  }
+
+  /* ============================================
+     Themes — clean, minimal, PPT-ready
+     ============================================ */
+
+  /* Theme: Minimal — thin top/bottom rules, very light row dividers */
+  .theme-minimal table {
+    font-size: 14px;
+    color: #1f2329;
+  }
+  .theme-minimal thead th {
+    font-weight: 600;
+    text-align: left;
+    padding: 12px 18px;
+    border-top: 2px solid #1f2329;
+    border-bottom: 1px solid #1f2329;
+    background: #ffffff;
+    color: #1f2329;
+    letter-spacing: 0.2px;
+  }
+  .theme-minimal tbody td {
+    padding: 12px 18px;
+    border-bottom: 1px solid #ececec;
+    color: #2b3340;
+  }
+  .theme-minimal tbody tr:last-child td {
+    border-bottom: 1.5px solid #1f2329;
+  }
+
+  /* Theme: Banded — subtle alternating rows */
+  .theme-banded table {
+    font-size: 14px;
+    color: #1f2329;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .theme-banded thead th {
+    font-weight: 600;
+    text-align: left;
+    padding: 13px 18px;
+    background: #f3f4f6;
+    color: #1f2329;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .theme-banded tbody td {
+    padding: 12px 18px;
+    color: #2b3340;
+  }
+  .theme-banded tbody tr:nth-child(even) td { background: #fafafa; }
+  .theme-banded tbody tr td { border-bottom: 1px solid #f1f2f4; }
+  .theme-banded tbody tr:last-child td { border-bottom: none; }
+
+  /* Theme: Editorial — serif headers, hairline rules, generous spacing */
+  .theme-editorial table {
+    font-size: 14.5px;
+    color: #1f2329;
+  }
+  .theme-editorial thead th {
+    font-family: "Times New Roman", "Songti SC", "STSong", Georgia, serif;
+    font-weight: 600;
+    font-style: italic;
+    text-align: left;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid #1f2329;
+    color: #1f2329;
+    letter-spacing: 0.3px;
+  }
+  .theme-editorial tbody td {
+    padding: 14px 20px;
+    border-bottom: 1px solid #ededed;
+    color: #2b3340;
+  }
+  .theme-editorial tbody tr:last-child td { border-bottom: 1px solid #1f2329; }
+
+  /* Theme: Accent — single accent color in header */
+  .theme-accent table {
+    font-size: 14px;
+    color: #1f2329;
+  }
+  .theme-accent thead th {
+    font-weight: 600;
+    text-align: left;
+    padding: 13px 18px;
+    background: var(--accent, #2c5282);
+    color: #ffffff;
+    letter-spacing: 0.3px;
+  }
+  .theme-accent thead th:first-child { border-top-left-radius: 4px; }
+  .theme-accent thead th:last-child { border-top-right-radius: 4px; }
+  .theme-accent tbody td {
+    padding: 12px 18px;
+    border-bottom: 1px solid #ececec;
+    color: #2b3340;
+  }
+  .theme-accent tbody tr:last-child td { border-bottom: none; }
+
+  /* Theme: Card — rounded card with soft shadow, no internal grid */
+  .theme-card { padding: 36px 40px; background: #fbfbfb; }
+  .theme-card table {
+    font-size: 14px;
+    color: #1f2329;
+    background: #fff;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .theme-card thead th {
+    font-weight: 600;
+    text-align: left;
+    padding: 14px 20px;
+    color: #6b7280;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    background: #fff;
+    border-bottom: 1px solid #eef0f3;
+  }
+  .theme-card tbody td {
+    padding: 14px 20px;
+    border-bottom: 1px solid #f4f5f7;
+    color: #1f2329;
+  }
+  .theme-card tbody tr:last-child td { border-bottom: none; }
+
+  /* Numeric alignment helper */
+  #renderHost td.num, #renderHost th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Density */
+  #renderHost.density-compact thead th,
+  #renderHost.density-compact tbody td { padding-top: 8px; padding-bottom: 8px; }
+  #renderHost.density-cozy thead th,
+  #renderHost.density-cozy tbody td { padding-top: 16px; padding-bottom: 16px; }
+
+  /* Font size override */
+  #renderHost[data-fs="13"] table { font-size: 13px; }
+  #renderHost[data-fs="14"] table { font-size: 14px; }
+  #renderHost[data-fs="15"] table { font-size: 15px; }
+  #renderHost[data-fs="16"] table { font-size: 16px; }
+  #renderHost[data-fs="18"] table { font-size: 18px; }
+
+  /* Sheet tabs */
+  .sheet-tabs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .sheet-tabs button {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    color: #4b5563;
+    padding: 6px 14px;
+    font-size: 12px;
+    border-radius: 999px;
+  }
+  .sheet-tabs button.active {
+    background: #1f2329;
+    color: #fff;
+    border-color: #1f2329;
+  }
+
+  .footnote {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 16px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Excel → PPT 表格工具</h1>
+    <p>上传 Excel，套用简约样式，一键导出为图片粘贴到 PPT。</p>
+  </header>
+
+  <!-- Drop zone -->
+  <label class="dropzone" id="dropzone" for="fileInput">
+    <div class="icon">⬆</div>
+    <div class="title">点击或拖拽 Excel 文件到这里</div>
+    <div class="hint">支持 .xlsx / .xls / .csv</div>
+  </label>
+  <input type="file" id="fileInput" class="visually-hidden" accept=".xlsx,.xls,.csv" tabindex="-1" aria-hidden="true" />
+
+  <!-- Toolbar -->
+  <div class="toolbar" id="toolbar" style="display:none;">
+    <label class="field">
+      样式
+      <select id="themeSel">
+        <option value="minimal">极简 Minimal</option>
+        <option value="banded">条纹 Banded</option>
+        <option value="editorial">刊物 Editorial</option>
+        <option value="accent">主色 Accent</option>
+        <option value="card">卡片 Card</option>
+      </select>
+    </label>
+    <label class="field" id="accentField" style="display:none;">
+      主色
+      <input type="color" id="accentColor" value="#2c5282" style="width:32px;height:28px;border:1px solid #d9dde3;border-radius:6px;background:#fff;padding:2px;" />
+    </label>
+    <label class="field">
+      字号
+      <select id="fontSize">
+        <option value="13">13</option>
+        <option value="14" selected>14</option>
+        <option value="15">15</option>
+        <option value="16">16</option>
+        <option value="18">18</option>
+      </select>
+    </label>
+    <label class="field">
+      行高
+      <select id="density">
+        <option value="compact">紧凑</option>
+        <option value="normal" selected>常规</option>
+        <option value="cozy">舒适</option>
+      </select>
+    </label>
+    <label class="field">
+      首行
+      <select id="headerMode">
+        <option value="row1" selected>作为表头</option>
+        <option value="none">无表头</option>
+      </select>
+    </label>
+    <label class="field">
+      标题
+      <input type="text" id="captionInput" placeholder="可选，显示在表格上方" style="border:1px solid #d9dde3;border-radius:6px;padding:6px 10px;font-size:13px;min-width:180px;" />
+    </label>
+    <div class="spacer"></div>
+    <button class="ghost" id="reuploadBtn">重新上传</button>
+    <button class="primary" id="downloadBtn">下载为图片</button>
+  </div>
+
+  <!-- Sheet tabs -->
+  <div class="sheet-tabs" id="sheetTabs"></div>
+
+  <!-- Preview -->
+  <div class="preview-wrap">
+    <div id="previewEmpty" class="preview-empty">尚未上传文件，预览将显示在此处。</div>
+    <div id="renderHost" style="display:none;"></div>
+  </div>
+
+  <div class="footnote">导出图片建议 2× 清晰度，直接粘贴到 PPT 即可保持锐利。</div>
+</div>
+
+<script>
+(() => {
+  const fileInput = document.getElementById('fileInput');
+  const dropzone = document.getElementById('dropzone');
+  const toolbar = document.getElementById('toolbar');
+  const themeSel = document.getElementById('themeSel');
+  const accentField = document.getElementById('accentField');
+  const accentColor = document.getElementById('accentColor');
+  const fontSize = document.getElementById('fontSize');
+  const density = document.getElementById('density');
+  const headerMode = document.getElementById('headerMode');
+  const captionInput = document.getElementById('captionInput');
+  const reuploadBtn = document.getElementById('reuploadBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const renderHost = document.getElementById('renderHost');
+  const previewEmpty = document.getElementById('previewEmpty');
+  const sheetTabs = document.getElementById('sheetTabs');
+
+  let workbook = null;
+  let currentSheet = null;
+  let currentFileName = 'table';
+
+  // ----- File handling -----
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e => {
+    if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file) {
+    currentFileName = file.name.replace(/\.[^.]+$/, '') || 'table';
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        workbook = XLSX.read(data, { type: 'array' });
+        if (!workbook.SheetNames.length) throw new Error('文件中没有可读取的工作表');
+        renderSheetTabs();
+        selectSheet(workbook.SheetNames[0]);
+        toolbar.style.display = '';
+        dropzone.style.display = 'none';
+        previewEmpty.style.display = 'none';
+        renderHost.style.display = '';
+      } catch (err) {
+        alert('解析失败: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function renderSheetTabs() {
+    sheetTabs.innerHTML = '';
+    if (workbook.SheetNames.length <= 1) return;
+    workbook.SheetNames.forEach(name => {
+      const btn = document.createElement('button');
+      btn.textContent = name;
+      btn.addEventListener('click', () => selectSheet(name));
+      sheetTabs.appendChild(btn);
+    });
+  }
+
+  function selectSheet(name) {
+    currentSheet = name;
+    Array.from(sheetTabs.children).forEach(b => b.classList.toggle('active', b.textContent === name));
+    render();
+  }
+
+  // ----- Rendering -----
+  function isNumericLike(val) {
+    if (val === null || val === undefined || val === '') return false;
+    const s = String(val).trim().replace(/[,\s%]/g, '');
+    return /^-?\d+(\.\d+)?$/.test(s);
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function render() {
+    if (!workbook || !currentSheet) return;
+    const ws = workbook.Sheets[currentSheet];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
+    if (!rows.length) {
+      renderHost.innerHTML = '<div style="color:#9ca3af;padding:24px;">该工作表为空</div>';
+      return;
+    }
+
+    // Trim trailing empty columns
+    let maxCols = 0;
+    rows.forEach(r => { for (let i = r.length - 1; i >= 0; i--) { if (r[i] !== '' && r[i] != null) { if (i + 1 > maxCols) maxCols = i + 1; break; } } });
+    if (maxCols === 0) maxCols = rows[0].length;
+    const trimmed = rows.map(r => {
+      const out = r.slice(0, maxCols);
+      while (out.length < maxCols) out.push('');
+      return out;
+    });
+
+    // Decide which columns are numeric (majority of data cells numeric-like)
+    const useHeader = headerMode.value === 'row1' && trimmed.length > 1;
+    const dataStart = useHeader ? 1 : 0;
+    const numericCol = new Array(maxCols).fill(false);
+    for (let c = 0; c < maxCols; c++) {
+      let total = 0, num = 0;
+      for (let r = dataStart; r < trimmed.length; r++) {
+        const v = trimmed[r][c];
+        if (v === '' || v == null) continue;
+        total++;
+        if (isNumericLike(v)) num++;
+      }
+      if (total > 0 && num / total >= 0.6) numericCol[c] = true;
+    }
+
+    // Build table HTML
+    let html = '';
+    const theme = themeSel.value;
+    const caption = captionInput.value.trim();
+    html += `<table>`;
+    if (caption) html += `<caption>${escapeHtml(caption)}</caption>`;
+    if (useHeader) {
+      html += '<thead><tr>';
+      trimmed[0].forEach((cell, c) => {
+        html += `<th${numericCol[c] ? ' class="num"' : ''}>${escapeHtml(cell)}</th>`;
+      });
+      html += '</tr></thead>';
+    }
+    html += '<tbody>';
+    for (let r = dataStart; r < trimmed.length; r++) {
+      html += '<tr>';
+      trimmed[r].forEach((cell, c) => {
+        html += `<td${numericCol[c] ? ' class="num"' : ''}>${escapeHtml(cell)}</td>`;
+      });
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+
+    renderHost.className = `theme-${theme} density-${density.value}`;
+    renderHost.dataset.fs = fontSize.value;
+    renderHost.style.setProperty('--accent', accentColor.value);
+    renderHost.innerHTML = html;
+
+    accentField.style.display = theme === 'accent' ? '' : 'none';
+  }
+
+  [themeSel, fontSize, density, headerMode, captionInput, accentColor].forEach(el => {
+    el.addEventListener('input', render);
+    el.addEventListener('change', render);
+  });
+
+  reuploadBtn.addEventListener('click', () => {
+    workbook = null; currentSheet = null;
+    renderHost.innerHTML = '';
+    renderHost.style.display = 'none';
+    previewEmpty.style.display = '';
+    toolbar.style.display = 'none';
+    sheetTabs.innerHTML = '';
+    dropzone.style.display = '';
+    fileInput.value = '';
+  });
+
+  // ----- Download as PNG -----
+  downloadBtn.addEventListener('click', async () => {
+    if (!workbook) return;
+    downloadBtn.disabled = true;
+    const originalText = downloadBtn.textContent;
+    downloadBtn.textContent = '导出中…';
+    try {
+      const canvas = await html2canvas(renderHost, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${currentFileName}-${currentSheet || 'sheet'}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, 'image/png');
+    } catch (err) {
+      alert('导出失败: ' + err.message);
+    } finally {
+      downloadBtn.disabled = false;
+      downloadBtn.textContent = originalText;
+    }
+  });
+})();
+</script>
+</body>
+</html>
