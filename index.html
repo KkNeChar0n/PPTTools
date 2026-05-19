@@ -296,6 +296,9 @@
   }
   .theme-card tbody tr:last-child td { border-bottom: none; }
 
+  /* Preserve in-cell line breaks (Excel Alt+Enter) */
+  #renderHost td, #renderHost th { white-space: pre-line; vertical-align: top; }
+
   /* Numeric alignment helper */
   #renderHost td.num, #renderHost th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
