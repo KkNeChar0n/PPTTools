@@ -508,7 +508,67 @@
   function render() {
     if (!workbook || !currentSheet) return;
     const ws = workbook.Sheets[currentSheet];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
+    if (!ws['!ref']) {
+      renderHost.innerHTML = '<div style="color:#9ca3af;padding:24px;">该工作表为空</div>';
+      return;
+    }
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const merges = (ws['!merges'] || []).slice();
+
+    // Read raw value of a cell by (r, c)
+    function readCell(r, c) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (!cell) return '';
+      const v = cell.w !== undefined ? cell.w : cell.v;
+      return v === undefined || v === null ? '' : String(v);
+    }
+
+    // Build row-group roots: any rows touched by a vertical merge collapse into the merge's top row.
+    // Chained / overlapping merges are resolved with path compression.
+    const rStart = range.s.r, rEnd = range.e.r;
+    const cStart = range.s.c, cEnd = range.e.c;
+    const groupRoot = [];
+    for (let r = rStart; r <= rEnd; r++) groupRoot[r] = r;
+    for (const m of merges) {
+      if (m.s.r === m.e.r) continue; // only vertical merges form groups
+      let minRoot = groupRoot[m.s.r];
+      for (let r = m.s.r + 1; r <= m.e.r; r++) {
+        if (groupRoot[r] < minRoot) minRoot = groupRoot[r];
+      }
+      for (let r = m.s.r; r <= m.e.r; r++) groupRoot[r] = minRoot;
+    }
+    // Path compression
+    for (let r = rStart; r <= rEnd; r++) {
+      let cur = r;
+      while (groupRoot[cur] !== cur) cur = groupRoot[cur];
+      groupRoot[r] = cur;
+    }
+
+    // Build grouped, flattened rows
+    const groupOrder = [];
+    const groupMembers = new Map();
+    for (let r = rStart; r <= rEnd; r++) {
+      const root = groupRoot[r];
+      if (!groupMembers.has(root)) { groupOrder.push(root); groupMembers.set(root, []); }
+      groupMembers.get(root).push(r);
+    }
+    const totalCols = cEnd - cStart + 1;
+    const rows = groupOrder.map(root => {
+      const members = groupMembers.get(root);
+      const out = new Array(totalCols).fill('');
+      for (let c = cStart; c <= cEnd; c++) {
+        const parts = [];
+        let prev = null;
+        for (const r of members) {
+          const v = readCell(r, c);
+          if (v === '' || v === prev) continue; // skip empties and consecutive dupes (merged cell echoes)
+          parts.push(v);
+          prev = v;
+        }
+        out[c - cStart] = parts.join('\n');
+      }
+      return out;
+    });
     if (!rows.length) {
       renderHost.innerHTML = '<div style="color:#9ca3af;padding:24px;">该工作表为空</div>';
       return;
